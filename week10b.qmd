@@ -1,0 +1,18 @@
+---
+title: "NobelPrize.org"
+author: "ZIHAO YU"
+format: html
+editor: visual
+---
+
+## 1.How will I tackle the problem?
+
+The four questions are about 1). gender in the proportion, 2). age(age gap, Average age, etc), 3). Which Nobel Prize category has the largest number of laureates, and 4). Which laureates were born in one country but awarded as citizens of another?
+
+Retrieve Nobel Prize data via an API. After converting the raw data and completing data cleaning and organization, conduct exploratory data analysis to answer four specific questions.
+
+## 2.What data challenges do I anticipate?
+
+The data covers a long period, and the completeness of records may vary across different time periods; therefore, some variables may have missing values or incomplete information. 
+
+Countries may have undergone name changes, divisions, or mergers over time, which can affect further organization and comparative analysis.
