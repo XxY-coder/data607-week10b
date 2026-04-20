@@ -5,14 +5,351 @@ format: html
 editor: visual
 ---
 
-## 1.How will I tackle the problem?
+## 1. How will I tackle the problem?
 
 The four questions are about 1). gender in the proportion, 2). age(age gap, Average age, etc), 3). Which Nobel Prize category has the largest number of laureates, and 4). Which laureates were born in one country but awarded as citizens of another?
 
 Retrieve Nobel Prize data via an API. After converting the raw data and completing data cleaning and organization, conduct exploratory data analysis to answer four specific questions.
 
-## 2.What data challenges do I anticipate?
+## 2. What data challenges do I anticipate?
 
 The data covers a long period, and the completeness of records may vary across different time periods; therefore, some variables may have missing values or incomplete information. 
 
 Countries may have undergone name changes, divisions, or mergers over time, which can affect further organization and comparative analysis.
+
+---
+
+## 3. Load the data to work with APIs
+
+```{r}
+library(tidyverse)
+library(httr2)
+library(jsonlite)
+
+req1 <- request("https://api.nobelprize.org/2.1/laureates?limit=1000")
+
+resp1 <- req_perform(req1)
+
+raw_data1 <-
+  resp_body_string(resp1) |>
+  fromJSON(flatten = TRUE)
+```
+
+```{r}
+names(raw_data1)
+```
+
+```{r}
+req2 <- request("https://api.nobelprize.org/2.1/nobelPrizes?limit=1000")
+
+resp2 <- req_perform(req2)
+
+raw_data2 <- 
+  resp_body_string(resp2) |>
+  fromJSON(flatten = TRUE)
+```
+
+```{r}
+names(raw_data2)
+```
+
+---
+
+
+## 4. Extract the data and convert it to a tibble
+
+```{r}
+laureates_df <- as_tibble(raw_data1$laureates)
+
+prizes_df <- as_tibble(raw_data2$nobelPrizes)
+```
+
+
+```{r}
+names(laureates_df)
+```
+
+
+```{r}
+names(prizes_df)
+```
+```{r}
+prizes_laureates <- 
+  prizes_df |>
+  unnest(laureates, names_sep = "_", keep_empty = TRUE)
+
+names(prizes_laureates)
+```
+
+---
+
+## 5. Data cleaning
+
+dealing with the data1
+
+```{r}
+nobel_tidy <- 
+  laureates_df |>
+  unnest(nobelPrizes, names_sep = "_") |>
+  mutate(
+    award_year = as.integer(nobelPrizes_awardYear),
+    category = nobelPrizes_category.en,
+    laureate_name = coalesce(knownName.en, fullName.en),
+    birth_year = as.integer(str_sub(birth.date, 1, 4)),
+    birth_country = birth.place.country.en,
+    birth_country_now = birth.place.countryNow.en,
+    birth_continent = birth.place.continent.en,
+    motivation = nobelPrizes_motivation.en
+) |>
+  select(
+    id,
+    laureate_name,
+    gender,
+    birth_year,
+    award_year,
+    birth_country,
+    birth_country_now,
+    birth_continent,
+    category,
+    motivation
+)
+
+head(nobel_tidy)
+```
+
+
+dealing with the data2
+
+```{r}
+prizes_tidy <-
+  prizes_laureates |>
+  mutate(
+    award_year = as.integer(awardYear),
+    category = category.en,
+    laureate_name = coalesce(
+      laureates_knownName.en,
+      laureates_fullName.en,
+      laureates_orgName.en
+    )
+  ) |>
+  select(
+    award_year,
+    category,
+    id = laureates_id,
+    laureate_name,
+    motivation = laureates_motivation.en,
+    prize_amount = prizeAmount,
+    prize_amount_adjusted = prizeAmountAdjusted
+  )
+
+head(prizes_tidy)
+```
+
+---
+
+## 6. Formulate four questions
+
+```{r}
+gender_count <-
+  nobel_tidy |>
+  filter(!is.na(gender)) |>
+  count(gender, sort = TRUE)
+
+```
+
+```{r}
+gender_count |>
+  ggplot(aes(
+    x = gender, 
+    y = n, 
+    fill = gender)
+) +
+  geom_col(width = 0.5) +
+  geom_text(aes(label = n), vjust = -0.3) +
+  labs(
+    title = "Number of Nobel Prize Laureates by Gender",
+    x = "Gender",
+    y = "Number of Laureates"
+) +
+  theme_minimal()
+```
+
+### 1. How are Nobel Prize laureates distributed by gender?
+
+The results show that male laureates appear much more frequently than female laureates in the Nobel Prize data.
+
+---
+
+```{r}
+age_info <- nobel_tidy |>
+  mutate(
+    age_at_award = award_year - birth_year
+) |>
+  filter(!is.na(age_at_award))
+```
+
+```{r}
+youngest_oldest <-
+  age_info |>
+  filter(
+    age_at_award == min(age_at_award) |
+    age_at_award == max(age_at_award)
+) |>
+  select(
+    laureate_name,
+    award_year,
+    category,
+    age_at_award
+) |>
+  arrange(age_at_award)
+
+youngest_oldest
+```
+
+```{r}
+# Average age by decade
+average_age_decade <- 
+  age_info |>
+  mutate(
+    decade = floor(award_year / 10) * 10
+) |>
+  group_by(decade) |>
+  summarise(
+    average_age = mean(age_at_award),
+    .groups = "drop"
+)
+```
+
+
+```{r}
+ggplot(
+  average_age_decade, 
+  aes(x = factor(decade), 
+      y = average_age,
+      fill = decade)
+) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = round(average_age, 1)), vjust = -0.3) +
+  labs(
+    title = "Average Age of Nobel Prize Laureates by Decade",
+    x = "Decade",
+    y = "Average Age at Award"
+  ) +
+  theme_minimal()
+```
+
+### 2. What are the youngest and oldest ages at which Nobel laureates received their prizes, and how has the average age at award changed by decade?
+
+The youngest laureate in this data is Malala Yousafzai, who received the Peace prize in 2014 at age 17. The oldest laureate is John B. Goodenough, who received the Chemistry prize in 2019 at age 97.
+
+The bar chart shows that the average age at award generally increased over time. Earlier decades were mostly in the 50s, while more recent decades are mostly in the 60s, with the highest average age appearing in the 2020s at about 68.5.
+
+---
+
+```{r}
+category_count <- 
+  nobel_tidy |>
+  filter(!is.na(category)) |>
+  group_by(category) |>
+  summarise(
+    number_of_laureates = n_distinct(id),
+    .groups = "drop"
+) |>
+  arrange(desc(number_of_laureates))
+
+```
+
+```{r}
+#| fig-width: 11
+#| fig-height: 4
+
+ggplot(
+  category_count, 
+  aes(x = reorder(category, number_of_laureates), 
+      y = number_of_laureates,
+      fill = category)
+) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = number_of_laureates), hjust = -0.3) +
+  coord_flip() +
+  labs(
+    title = "Number of Nobel Prize Laureates by Category",
+    x = "Category",
+    y = "Number of Laureates"
+  ) +
+  theme_minimal()
+```
+
+### 3. Which Nobel Prize category has the most laureates?
+
+The category with the most laureates is Physiology or Medicine, with 231 laureates. The next highest categories are Physics with 224 laureates and Chemistry with 196 laureates. The category with the fewest laureates is Economic Sciences, with 99 laureates.
+
+---
+
+```{r}
+affil_info <-
+  laureates_df |>
+  unnest(nobelPrizes, names_sep = "_") |>
+  unnest(nobelPrizes_affiliations, names_sep = "_", keep_empty = TRUE) |>
+  transmute(
+    id,
+    award_year = as.integer(nobelPrizes_awardYear),
+    category = nobelPrizes_category.en,
+    affil_country = nobelPrizes_affiliations_country.en
+) |>
+  filter(!is.na(affil_country))
+```
+
+
+```{r}
+affil_df <-
+  nobel_tidy |>
+  left_join(affil_info, by = c("id", "award_year", "category")) |>
+  filter(
+    !is.na(birth_country),
+    !is.na(affil_country),
+    birth_country != affil_country
+) |>
+  select(
+    laureate_name,
+    birth_country,
+    affil_country,
+    award_year,
+    category
+) |>
+  arrange(birth_country)
+
+```
+
+```{r}
+country_pairs <-
+  affil_df |>
+  count(birth_country, affil_country, sort = TRUE
+) |>
+  mutate(
+    country_pair = paste(birth_country, "to", affil_country)
+) |>
+  slice_head(n = 10)
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+
+ggplot(country_pairs,
+       aes(x = reorder(country_pair, n), y = n, fill = n)
+) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = n), hjust = -0.2) +
+  coord_flip() +
+  labs(
+    title = "Top 10 Birth Country and Affiliation Country Pairs",
+    x = "Birth Country to Affiliation Country",
+    y = "Number of Laureates"
+  ) +
+  theme_minimal()
+```
+
+### 4. Which birth-country and affiliation-country pairs appear most often among Nobel laureates?
+
+The most common pairs are United Kingdom to USA and Germany to USA, both with 21 laureates.
